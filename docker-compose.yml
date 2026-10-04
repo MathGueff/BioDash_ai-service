@@ -1,0 +1,23 @@
+services:
+  biodash-ai:
+    build:
+      context: .
+    image: thiagohmn93/biodash_chatbot:latest
+    container_name: biodash_chatbot
+    environment:
+      AI_SERVICE_PORT: "5000"
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE_TYPE: int8
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+    env_file:
+      - .env
+    ports:
+      - "5000:5000"
+    volumes:
+      - whisper-cache:/root/.cache/huggingface
+    restart: unless-stopped
+
+volumes:
+  whisper-cache:

@@ -3,10 +3,7 @@
   "version": "1.0.0",
   "description": "Microserviço de PLN e Chatbot do BioDash (FastAPI + Whisper)",
   "scripts": {
-    "dev": "python -m uvicorn main:app --host 0.0.0.0 --port 5000 --reload",
-    "start": "python -m uvicorn main:app --host 0.0.0.0 --port 5000",
-    "setup": "python -m venv .venv && npm run install:deps",
-    "install:deps": "pip install -r requirements.txt",
+    "dev": "uv run --python 3.11 --with-requirements requirements.txt uvicorn main:app --host 127.0.0.1 --port 5000",
     "test": "python test_chatbot_context.py",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",

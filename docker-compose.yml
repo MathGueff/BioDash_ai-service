@@ -2,8 +2,8 @@ services:
   biodash-ai:
     build:
       context: .
-    image: thiagohmn93/biodash_chatbot:latest
-    container_name: biodash_chatbot
+    image: mathgueff/biodash_ai-service:latest
+    container_name: biodash_ai-service
     environment:
       AI_SERVICE_PORT: "5000"
       WHISPER_MODEL: ${WHISPER_MODEL:-small}

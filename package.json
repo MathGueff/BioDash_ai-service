@@ -8,7 +8,8 @@
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:build": "docker compose up -d --build",
-    "docker:logs": "docker logs -f biodash_ai-service"
+    "docker:logs": "docker logs -f biodash_ai-service",
+    "docker:ps": "docker compose ps"
   },
   "keywords": [
     "biodash",

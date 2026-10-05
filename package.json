@@ -1,0 +1,25 @@
+{
+  "name": "biodash_ai-service",
+  "version": "1.0.0",
+  "description": "Microserviço de PLN e Chatbot do BioDash (FastAPI + Whisper)",
+  "scripts": {
+    "dev": "python -m uvicorn main:app --host 0.0.0.0 --port 5000 --reload",
+    "start": "python -m uvicorn main:app --host 0.0.0.0 --port 5000",
+    "setup": "python -m venv .venv && npm run install:deps",
+    "install:deps": "pip install -r requirements.txt",
+    "test": "python test_chatbot_context.py",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:build": "docker compose up -d --build",
+    "docker:logs": "docker logs -f biodash_ai-service"
+  },
+  "keywords": [
+    "biodash",
+    "fastapi",
+    "whisper",
+    "ai",
+    "nlp"
+  ],
+  "author": "",
+  "license": "ISC"
+}

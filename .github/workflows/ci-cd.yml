@@ -1,5 +1,8 @@
 name: AI Service CI / CD (FastAPI + Whisper)
 
+permissions:
+  contents: write
+
 on:
   push:
     branches:
@@ -10,14 +13,150 @@ on:
       - main
 
 jobs:
-  build-and-push:
+  pipeline:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar Semver
+        run: npm install -g semver
+
+      - name: Criar tag v0.0.0 inicial caso não exista
+        if: github.ref == 'refs/heads/main'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -z "$(git tag)" ]; then
+            git config --global user.name 'github-actions[bot]'
+            git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+            git tag -a v0.0.0 -m "Initial release"
+            git push origin v0.0.0
+          else
+            echo "Tag v0.0.0 já existe - nenhuma ação necessária."
+          fi
+
+      - name: Calcular nova versão
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force --prune
+          EXISTING_TAG=$(git tag --points-at HEAD | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)
+          if [ -n "${EXISTING_TAG:-}" ]; then
+            echo "Reexecução detectada: usando tag existente $EXISTING_TAG"
+            VERSION="${EXISTING_TAG#v}"
+            {
+              echo "should_deploy=false"
+              echo "current_version=$VERSION"
+              echo "new_version=$VERSION"
+            } >> "$GITHUB_OUTPUT"
+            echo "NEW_VERSION=$VERSION" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          echo "Nenhuma tag semântica no HEAD. Calculando nova versão..."
+          LAST_TAG=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)
+          if [ -z "${LAST_TAG:-}" ]; then
+            LAST_TAG="v0.0.0"
+          fi
+          echo "Última tag: $LAST_TAG"
+          CURRENT_VERSION="${LAST_TAG#v}"
+          if [ "$LAST_TAG" = "v0.0.0" ]; then
+            LOG_RANGE=""
+          else
+            LOG_RANGE="${LAST_TAG}..HEAD"
+          fi
+
+          mapfile -t COMMITS < <(git log ${LOG_RANGE} --pretty=format:'%s' || true)
+          echo "Commits desde ${LAST_TAG}:"
+          printf ' - %s\n' "${COMMITS[@]:-<nenhum>}"
+
+          MAJOR=0; MINOR=0; PATCH=0
+          for COMMIT in "${COMMITS[@]:-}"; do
+            if [[ "$COMMIT" == *"BREAKING CHANGE"* ]] || [[ "$COMMIT" =~ ^feat!\: ]] || [[ "$COMMIT" =~ \!$ ]]; then
+              MAJOR=1
+            elif [[ "$COMMIT" =~ ^feat(\(.+\))?\: ]]; then
+              MINOR=1
+            elif [[ "$COMMIT" =~ ^fix(\(.+\))?\: ]]; then
+              PATCH=1
+            fi
+          done
+
+          NEW_VERSION="$CURRENT_VERSION"
+          if [[ $MAJOR -eq 1 ]]; then
+            NEW_VERSION=$(semver -i major "$CURRENT_VERSION")
+          elif [[ $MINOR -eq 1 ]]; then
+            NEW_VERSION=$(semver -i minor "$CURRENT_VERSION")
+          elif [[ $PATCH -eq 1 ]]; then
+            NEW_VERSION=$(semver -i patch "$CURRENT_VERSION")
+          elif [ "$LAST_TAG" = "v0.0.0" ] && [ "$CURRENT_VERSION" = "0.0.0" ]; then
+            NEW_VERSION="1.0.0"
+          fi
+
+          echo "Versões (atual / nova): $CURRENT_VERSION -> $NEW_VERSION"
+          if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
+            echo "Sem mudanças de versão."
+            {
+              echo "should_deploy=false"
+              echo "current_version=$CURRENT_VERSION"
+              echo "new_version=$CURRENT_VERSION"
+            } >> "$GITHUB_OUTPUT"
+            echo "NEW_VERSION=$CURRENT_VERSION" >> "$GITHUB_ENV"
+          else
+            {
+              echo "should_deploy=true"
+              echo "current_version=$CURRENT_VERSION"
+              echo "new_version=$NEW_VERSION"
+            } >> "$GITHUB_OUTPUT"
+            echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
+          fi
+
+      - name: Atualizar versão no package.json
+        if: steps.version.outputs.should_deploy == 'true' && github.ref == 'refs/heads/main'
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+        run: |
+          set -euo pipefail
+          CURRENT_PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$CURRENT_PKG_VERSION" != "${NEW_VERSION}" ]; then
+            npm version "${NEW_VERSION}" --no-git-tag-version
+          else
+            echo "Versão $NEW_VERSION já está no package.json"
+          fi
+
+      - name: Commit e push do package.json e tag
+        if: steps.version.outputs.should_deploy == 'true' && github.ref == 'refs/heads/main'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "chore(release): version ${NEW_VERSION}" || echo "Nada para commitar"
+          if git rev-parse "v${NEW_VERSION}" >/dev/null 2>&1; then
+            echo "Tag v${NEW_VERSION} já existe. Pulando criação de tag."
+          else
+            git tag "v${NEW_VERSION}"
+          fi
+          git push origin HEAD:main
+          if git rev-parse "v${NEW_VERSION}" >/dev/null 2>&1; then
+            git push origin "v${NEW_VERSION}"
+          fi
 
       - name: Set up Docker Buildx
+        if: github.ref == 'refs/heads/main'
         uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
@@ -28,13 +167,14 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push Docker image
+        if: github.ref == 'refs/heads/main'
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          push: ${{ github.ref == 'refs/heads/main' }}
+          push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/biodash_ai-service:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/biodash_ai-service:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/biodash_ai-service:${{ steps.version.outputs.new_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -1,6 +1,6 @@
 {
   "name": "biodash_ai-service",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Microserviço de PLN e Chatbot do BioDash (FastAPI + Whisper)",
   "scripts": {
     "dev": "uv run --python 3.11 --with-requirements requirements.txt uvicorn main:app --host 127.0.0.1 --port 5000",

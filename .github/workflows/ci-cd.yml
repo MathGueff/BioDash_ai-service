@@ -34,7 +34,7 @@ jobs:
           file: ./Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/biodash_chatbot:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/biodash_chatbot:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/biodash_ai-service:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/biodash_ai-service:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

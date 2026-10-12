@@ -56,6 +56,7 @@ jobs:
 
     outputs:
       new_version: ${{ steps.version.outputs.new_version }}
+      docker_tag: ${{ steps.version.outputs.docker_tag }}
       should_deploy: ${{ steps.version.outputs.should_deploy }}
 
     steps:
@@ -87,7 +88,7 @@ jobs:
             echo "Tag v0.0.0 já existe - nenhuma ação necessária."
           fi
 
-      - name: Calcular nova versão semântica
+      - name: Calcular nova versão semântica e Tag Docker
         id: version
         shell: bash
         run: |
@@ -97,12 +98,25 @@ jobs:
           if [ -n "${EXISTING_TAG:-}" ]; then
             echo "Reexecução detectada: usando tag existente $EXISTING_TAG"
             VERSION="${EXISTING_TAG#v}"
+            SHORT_SHA=$(git rev-parse --short=7 HEAD)
+            BRANCH_NAME="${GITHUB_REF_NAME:-branch}"
+            SAFE_BRANCH=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9._-]/-/g' | cut -c1-15)
+            if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+              DOCKER_TAG="$VERSION"
+              DOCKER_TAGS="${{ secrets.DOCKERHUB_USERNAME }}/biodash_ai-service:latest,${{ secrets.DOCKERHUB_USERNAME }}/biodash_ai-service:${VERSION}"
+            else
+              DOCKER_TAG="${VERSION}-${SAFE_BRANCH}.${SHORT_SHA}"
+              DOCKER_TAGS="${{ secrets.DOCKERHUB_USERNAME }}/biodash_ai-service:${DOCKER_TAG}"
+            fi
             {
               echo "should_deploy=false"
               echo "current_version=$VERSION"
               echo "new_version=$VERSION"
+              echo "docker_tag=$DOCKER_TAG"
+              echo "docker_tags=$DOCKER_TAGS"
             } >> "$GITHUB_OUTPUT"
             echo "NEW_VERSION=$VERSION" >> "$GITHUB_ENV"
+            echo "DOCKER_TAG=$DOCKER_TAG" >> "$GITHUB_ENV"
             exit 0
           fi
 
@@ -145,23 +159,31 @@ jobs:
             NEW_VERSION="1.0.0"
           fi
 
-          echo "Versões (atual / nova): $CURRENT_VERSION -> $NEW_VERSION"
-          if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
-            echo "Sem mudanças de versão."
-            {
-              echo "should_deploy=false"
-              echo "current_version=$CURRENT_VERSION"
-              echo "new_version=$CURRENT_VERSION"
-            } >> "$GITHUB_OUTPUT"
-            echo "NEW_VERSION=$CURRENT_VERSION" >> "$GITHUB_ENV"
+          # Tag da imagem Docker:
+          # - main: usa SemVer limpo (ex: 1.0.1) e :latest
+          # - outras branches: usa pré-release com branch e commit SHA (ex: 1.0.1-feat-azure.7ce7ea4)
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          BRANCH_NAME="${GITHUB_REF_NAME:-branch}"
+          SAFE_BRANCH=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9._-]/-/g' | cut -c1-15)
+
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            DOCKER_TAG="$NEW_VERSION"
+            DOCKER_TAGS="${{ secrets.DOCKERHUB_USERNAME }}/biodash_ai-service:latest,${{ secrets.DOCKERHUB_USERNAME }}/biodash_ai-service:${NEW_VERSION}"
           else
-            {
-              echo "should_deploy=true"
-              echo "current_version=$CURRENT_VERSION"
-              echo "new_version=$NEW_VERSION"
-            } >> "$GITHUB_OUTPUT"
-            echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
+            DOCKER_TAG="${NEW_VERSION}-${SAFE_BRANCH}.${SHORT_SHA}"
+            DOCKER_TAGS="${{ secrets.DOCKERHUB_USERNAME }}/biodash_ai-service:${DOCKER_TAG}"
           fi
+
+          echo "Versões (atual / nova / docker_tag): $CURRENT_VERSION -> $NEW_VERSION ($DOCKER_TAG)"
+          {
+            echo "should_deploy=true"
+            echo "current_version=$CURRENT_VERSION"
+            echo "new_version=$NEW_VERSION"
+            echo "docker_tag=$DOCKER_TAG"
+            echo "docker_tags=$DOCKER_TAGS"
+          } >> "$GITHUB_OUTPUT"
+          echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
+          echo "DOCKER_TAG=$DOCKER_TAG" >> "$GITHUB_ENV"
 
       - name: Atualizar versão no package.json
         if: steps.version.outputs.should_deploy == 'true' && github.ref == 'refs/heads/main'
@@ -208,9 +230,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/biodash_ai-service:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/biodash_ai-service:${{ steps.version.outputs.new_version || 'latest' }}
+          tags: ${{ steps.version.outputs.docker_tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -229,7 +249,7 @@ jobs:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       RG_NAME: ${{ secrets.AZURE_RESOURCE_GROUP_NAME || 'rg-biodash-prod' }}
       CONTAINER_APP_NAME: ${{ secrets.AZURE_CONTAINER_APP_NAME || 'ca-biodash-ai-prod' }}
-      IMAGE_TAG: ${{ needs.build-and-push.outputs.new_version || 'latest' }}
+      IMAGE_TAG: ${{ needs.build-and-push.outputs.docker_tag || needs.build-and-push.outputs.new_version || 'latest' }}
     steps:
       - name: Azure Login via OIDC (Zero Secrets)
         uses: azure/login@v2

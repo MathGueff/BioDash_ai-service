@@ -248,7 +248,7 @@ jobs:
     env:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       RG_NAME: ${{ secrets.AZURE_RESOURCE_GROUP_NAME || 'rg-biodash-prod' }}
-      CONTAINER_APP_NAME: ${{ secrets.AZURE_CONTAINER_APP_NAME || 'ca-biodash-ai-prod' }}
+      CONTAINER_APP_NAME: 'ca-biodash-ai-prod'
       IMAGE_TAG: ${{ needs.build-and-push.outputs.docker_tag || needs.build-and-push.outputs.new_version || 'latest' }}
     steps:
       - name: Azure Login via OIDC (Zero Secrets)
@@ -269,8 +269,11 @@ jobs:
           echo "✅ Container App atualizado com sucesso no Azure Container Apps!"
 
       - name: Smoke Test Pós-Deploy (Disponibilidade Health Ativa)
+        id: smoke_test
         run: |
-          AI_URL="https://${CONTAINER_APP_NAME}.victoriousmoss-60cc301a.chilecentral.azurecontainerapps.io/health"
+          AI_FQDN=$(az containerapp show --name "$CONTAINER_APP_NAME" --resource-group "$RG_NAME" --query "properties.configuration.ingress.fqdn" -o tsv)
+          AI_URL="https://${AI_FQDN}/health"
+          echo "ai_url=$AI_URL" >> "$GITHUB_OUTPUT"
           echo "Executando Smoke Test no Chatbot AI Service: $AI_URL..."
 
           MAX_RETRIES=10
@@ -298,13 +301,14 @@ jobs:
       - name: Publicar Resumo do Deploy (Step Summary)
         if: always()
         run: |
+          AI_URL="${{ steps.smoke_test.outputs.ai_url || 'https://ca-biodash-ai-prod.victoriousmoss-60cc301a.chilecentral.azurecontainerapps.io/health' }}"
           echo "### 🚀 Deploy Azure Container Apps (Chatbot AI Service)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Propriedade | Valor |" >> $GITHUB_STEP_SUMMARY
           echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
           echo "| **Container App** | \`$CONTAINER_APP_NAME\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Imagem Docker** | \`${{ secrets.DOCKERHUB_USERNAME }}/biodash_ai-service:$IMAGE_TAG\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Versão SemVer** | \`v$IMAGE_TAG\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Imagem Docker** | \`docker.io/mathgueff/biodash_ai-service:$IMAGE_TAG\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Versão / Tag** | \`$IMAGE_TAG\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Ambiente** | \`production\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Health Endpoint** | https://${CONTAINER_APP_NAME}.victoriousmoss-60cc301a.chilecentral.azurecontainerapps.io/health |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Health Endpoint** | [$AI_URL]($AI_URL) |" >> $GITHUB_STEP_SUMMARY
           echo "| **Status Smoke Test** | ✅ 200 OK |" >> $GITHUB_STEP_SUMMARY

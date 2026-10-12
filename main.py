@@ -36,9 +36,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 # Carrega variáveis de ambiente do .env
 load_dotenv()
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-
 # Limiar mínimo de confiança do classificador SVM
 CONFIDENCE_THRESHOLD = 0.25
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
@@ -811,55 +808,16 @@ async def transcribe_audio(audio: UploadFile = File(...)):
 
 
 @app.get("/biodigestores")
-def get_biodigestores(user_id: str = Query(..., description="UUID do usuário autenticado")):
+def get_biodigestores(user_id: Optional[str] = Query(None, description="UUID do usuário autenticado")):
     """
-    Busca os biodigestores cadastrados para um usuário diretamente do Supabase.
-    Consulta a tabela `biodigestor_maps` (id, user_id, address json, created_at).
+    Endpoint legado. O gerenciamento de biodigestores agora é centralizado
+    no backend PostgreSQL (BioDashBD /api/markers).
     """
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise HTTPException(status_code=500, detail="SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não configurados.")
-
-    url = f"{SUPABASE_URL}/rest/v1/biodigestor_maps"
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
+    return {
+        "success": True,
+        "data": [],
+        "message": "Gerenciamento centralizado via PostgreSQL no backend BioDashBD (/api/markers)."
     }
-    params = {
-        "user_id": f"eq.{user_id}",
-        "order": "created_at.desc",
-        "select": "id,user_id,address,created_at",
-    }
-
-    try:
-        with httpx.Client(timeout=10.0) as client:
-            resp = client.get(url, headers=headers, params=params)
-
-        if resp.status_code != 200:
-            raise HTTPException(
-                status_code=resp.status_code,
-                detail=f"Erro ao consultar Supabase: {resp.text}"
-            )
-
-        rows = resp.json()
-        biodigestores = [
-            {
-                "id": str(row["id"]),
-                "user_id": row["user_id"],
-                "title": (row.get("address") or {}).get("title", "Biodigestor"),
-                "latitude": (row.get("address") or {}).get("latitude", -14.235),
-                "longitude": (row.get("address") or {}).get("longitude", -51.925),
-                "description": (row.get("address") or {}).get("description", ""),
-                "address": row.get("address") or {},
-                "created_at": row["created_at"],
-            }
-            for row in rows
-        ]
-
-        return {"success": True, "data": biodigestores, "total": len(biodigestores)}
-
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=503, detail=f"Erro de conexão com Supabase: {exc}")
 
 
 @app.post("/chatbot", response_model=ChatResponse)

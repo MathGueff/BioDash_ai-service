@@ -9,14 +9,9 @@ on:
   push:
     branches:
       - main
-      - develop
-      - feat/azure-integration
-      - 'feature/**'
-      - 'hotfix/**'
   pull_request:
     branches:
       - main
-      - develop
 
 jobs:
   # ============================================================================
@@ -52,7 +47,7 @@ jobs:
     name: Build & Push Imagem Docker
     needs: validate
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/azure-integration' || github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
 
     outputs:
       new_version: ${{ steps.version.outputs.new_version }}
@@ -94,10 +89,32 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --tags --force --prune
+          git fetch origin main || true
+
+          # 1. Verifica se HEAD já tem tag direta
           EXISTING_TAG=$(git tag --points-at HEAD | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)
+
+          # 2. Busca a última tag semântica do repositório
+          LAST_TAG=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)
+          if [ -z "${LAST_TAG:-}" ]; then
+            LAST_TAG="v0.0.0"
+          fi
+          echo "Última tag: $LAST_TAG"
+          CURRENT_VERSION="${LAST_TAG#v}"
+
+          # 3. Detecta se HEAD já é ancestral da última tag (ex: reexecução de workflow em commit já lançado)
+          ALREADY_RELEASED=false
           if [ -n "${EXISTING_TAG:-}" ]; then
-            echo "Reexecução detectada: usando tag existente $EXISTING_TAG"
-            VERSION="${EXISTING_TAG#v}"
+            ALREADY_RELEASED=true
+            RELEASE_TAG="$EXISTING_TAG"
+          elif [ "$LAST_TAG" != "v0.0.0" ] && git merge-base --is-ancestor HEAD "$LAST_TAG" 2>/dev/null; then
+            ALREADY_RELEASED=true
+            RELEASE_TAG="$LAST_TAG"
+          fi
+
+          if [ "$ALREADY_RELEASED" = "true" ]; then
+            echo "Reexecução detectada: o commit HEAD já foi lançado na tag $RELEASE_TAG"
+            VERSION="${RELEASE_TAG#v}"
             SHORT_SHA=$(git rev-parse --short=7 HEAD)
             BRANCH_NAME="${GITHUB_REF_NAME:-branch}"
             SAFE_BRANCH=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9._-]/-/g' | cut -c1-15)
@@ -121,12 +138,6 @@ jobs:
           fi
 
           echo "Nenhuma tag semântica no HEAD. Calculando nova versão..."
-          LAST_TAG=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)
-          if [ -z "${LAST_TAG:-}" ]; then
-            LAST_TAG="v0.0.0"
-          fi
-          echo "Última tag: $LAST_TAG"
-          CURRENT_VERSION="${LAST_TAG#v}"
           if [ "$LAST_TAG" = "v0.0.0" ]; then
             LOG_RANGE=""
           else
@@ -159,6 +170,13 @@ jobs:
             NEW_VERSION="1.0.0"
           fi
 
+          # Define se deve commitar e empurrar release
+          SHOULD_DEPLOY="true"
+          if [ "$NEW_VERSION" = "$CURRENT_VERSION" ] && [ "$LAST_TAG" != "v0.0.0" ]; then
+            echo "Nenhuma alteração SemVer detectada (sem feat/fix). Pulando criação de release."
+            SHOULD_DEPLOY="false"
+          fi
+
           # Tag da imagem Docker:
           # - main: usa SemVer limpo (ex: 1.0.1) e :latest
           # - outras branches: usa pré-release com branch e commit SHA (ex: 1.0.1-feat-azure.7ce7ea4)
@@ -176,7 +194,7 @@ jobs:
 
           echo "Versões (atual / nova / docker_tag): $CURRENT_VERSION -> $NEW_VERSION ($DOCKER_TAG)"
           {
-            echo "should_deploy=true"
+            echo "should_deploy=$SHOULD_DEPLOY"
             echo "current_version=$CURRENT_VERSION"
             echo "new_version=$NEW_VERSION"
             echo "docker_tag=$DOCKER_TAG"
@@ -212,6 +230,8 @@ jobs:
           if ! git rev-parse "v${NEW_VERSION}" >/dev/null 2>&1; then
             git tag "v${NEW_VERSION}"
           fi
+          git fetch origin main
+          git pull --rebase origin main || true
           git push origin HEAD:main
           git push origin "v${NEW_VERSION}"
 
@@ -232,7 +252,7 @@ jobs:
           push: true
           tags: ${{ steps.version.outputs.docker_tags }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
 
   # ============================================================================
   # Job 3: Continuous Deployment & Smoke Test (Azure Container Apps Chatbot)
@@ -241,7 +261,7 @@ jobs:
     name: Continuous Deployment (Azure ACA Chatbot)
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/azure-integration' || github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     environment:
       name: production
       url: https://ca-biodash-ai-prod.victoriousmoss-60cc301a.chilecentral.azurecontainerapps.io

@@ -7,6 +7,13 @@ env
 venv
 .venv
 .git
+.gitignore
 .github
 .env
 .env.*
+docs
+*.md
+test_*.py
+Dockerfile
+docker-compose.yml
+package.json

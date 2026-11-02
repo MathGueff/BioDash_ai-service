@@ -16,6 +16,7 @@ Run: uvicorn main:app --host 0.0.0.0 --port 5000 --reload
 
 import os
 import re
+import time
 from enum import Enum
 import tempfile
 import threading
@@ -33,8 +34,11 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import SVC
 from sklearn.metrics.pairwise import cosine_similarity
 
-# Carrega variáveis de ambiente do .env
+from telemetry import init_telemetry, log_event
+
+# Carrega variáveis de ambiente do .env e inicializa OpenTelemetry
 load_dotenv()
+init_telemetry()
 
 # Limiar mínimo de confiança do classificador SVM
 CONFIDENCE_THRESHOLD = 0.25
@@ -63,10 +67,24 @@ def get_whisper_model():
         with _whisper_model_lock:
             if _whisper_model is None:
                 from faster_whisper import WhisperModel
+                t0 = time.perf_counter()
+                log_event(
+                    "info",
+                    "Carregando modelo Faster-Whisper em memória (Cold Start)",
+                    model=WHISPER_MODEL,
+                    device=WHISPER_DEVICE,
+                    computeType=WHISPER_COMPUTE_TYPE,
+                )
                 _whisper_model = WhisperModel(
                     WHISPER_MODEL,
                     device=WHISPER_DEVICE,
                     compute_type=WHISPER_COMPUTE_TYPE,
+                )
+                log_event(
+                    "info",
+                    "Modelo Faster-Whisper carregado com sucesso",
+                    model=WHISPER_MODEL,
+                    loadDurationMs=round((time.perf_counter() - t0) * 1000, 1),
                 )
     return _whisper_model
 
@@ -790,17 +808,28 @@ async def transcribe_audio(audio: UploadFile = File(...)):
         suffix = ".webm"
 
     temp_path = ""
+    t0 = time.perf_counter()
     try:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
             temp_file.write(contents)
             temp_path = temp_file.name
         result = await run_in_threadpool(transcribe_file, temp_path)
         if not result["text"]:
+            log_event("warning", "Transcrição Whisper sem fala reconhecida", fileSizeBytes=len(contents))
             raise HTTPException(status_code=422, detail="Nenhuma fala foi reconhecida.")
+        log_event(
+            "info",
+            "Transcrição Whisper concluída",
+            audioDurationSec=result.get("duration"),
+            processingMs=round((time.perf_counter() - t0) * 1000, 1),
+            textLength=len(result["text"]),
+            model=WHISPER_MODEL,
+        )
         return result
     except HTTPException:
         raise
     except Exception as exc:
+        log_event("error", "Falha ao transcrever áudio no Whisper", error=str(exc))
         raise HTTPException(status_code=503, detail=f"Falha ao transcrever áudio: {exc}") from exc
     finally:
         if temp_path:
@@ -1303,6 +1332,16 @@ def chatbot_endpoint(req: ChatRequest):
     if context:
         context.last_question_type = question_type
 
+    log_event(
+        "info",
+        "Chatbot intent classified",
+        intent=intent,
+        confidence=round(confidence, 4),
+        questionType=str(question_type.value if hasattr(question_type, "value") else question_type),
+        action=action,
+        isElliptical=is_elliptical,
+    )
+
     return ChatResponse(
         intent=intent,
         question_type=question_type,
@@ -1347,7 +1386,17 @@ def semantic_search(req: SemanticSearchRequest):
             marker["similarity_score"] = round(float(score), 4)
             results.append(marker)
 
-    return SemanticSearchResponse(results=results[:10])
+    top_results = results[:10]
+    log_event(
+        "info",
+        "Semantic search executed",
+        query=req.query,
+        markersCount=len(req.markers),
+        resultsCount=len(top_results),
+        topScore=top_results[0]["similarity_score"] if top_results else 0.0,
+    )
+
+    return SemanticSearchResponse(results=top_results)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

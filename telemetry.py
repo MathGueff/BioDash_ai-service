@@ -4,6 +4,7 @@ Isola a inicialização do Azure Monitor OpenTelemetry e o logging estruturado J
 com correlação automática de traceId e spanId (W3C Trace Context).
 """
 
+import importlib
 import json
 import logging
 import os
@@ -21,9 +22,8 @@ _is_initialized = False
 def _get_otel_context_meta() -> Dict[str, str]:
     """Extrai traceId e spanId do span ativo do OpenTelemetry, se presente."""
     try:
-        from opentelemetry import trace
-
-        span = trace.get_current_span()
+        otel_trace = importlib.import_module("opentelemetry.trace")
+        span = otel_trace.get_current_span()
         if not span:
             return {}
         ctx = span.get_span_context()
@@ -59,9 +59,8 @@ def init_telemetry() -> None:
     )
     if conn_str:
         try:
-            from azure.monitor.opentelemetry import configure_azure_monitor
-
-            configure_azure_monitor(connection_string=conn_str)
+            az_otel = importlib.import_module("azure.monitor.opentelemetry")
+            az_otel.configure_azure_monitor(connection_string=conn_str)
             _is_initialized = True
             log_event(
                 "info",

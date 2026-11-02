@@ -23,7 +23,6 @@ import threading
 from pathlib import Path
 from typing import Optional, List, Any, Dict
 
-import httpx
 import numpy as np
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File

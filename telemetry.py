@@ -14,6 +14,11 @@ logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] %(levelname)s [biodash-ai-service]: %(message)s",
 )
+# Silencia logs verbosos internos do SDK da Azure (evita loop infinito de telemetria e poluição no stderr)
+logging.getLogger("azure").setLevel(logging.WARNING)
+logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+logging.getLogger("azure.monitor.opentelemetry").setLevel(logging.WARNING)
+
 logger = logging.getLogger("biodash-ai")
 
 _is_initialized = False
@@ -60,7 +65,10 @@ def init_telemetry() -> None:
     if conn_str:
         try:
             az_otel = importlib.import_module("azure.monitor.opentelemetry")
-            az_otel.configure_azure_monitor(connection_string=conn_str)
+            az_otel.configure_azure_monitor(
+                connection_string=conn_str,
+                logger_name="biodash-ai",
+            )
             _is_initialized = True
             log_event(
                 "info",

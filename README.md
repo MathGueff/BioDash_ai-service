@@ -9,7 +9,11 @@ Microserviço de PLN (Processamento de Linguagem Natural), Transcrição de Áud
 # Inicia a aplicação usando uv + python 3.11 automaticamente
 npm run dev
 
-# Rodar os testes de contexto
+# Instalar dependências de execução e desenvolvimento (Python 3.11)
+python -m pip install -r requirements.txt -r requirements-dev.txt
+
+# Verificar lint e executar os testes unitários e de contexto
+npm run lint
 npm test
 ```
 
@@ -35,3 +39,9 @@ npm run docker:down
 - `POST /chatbot/transcribe` - Transcrição de áudio via Whisper
 - `GET /semantic-search` - Busca semântica de biodigestores
 
+
+## Integração contínua
+
+O GitHub Actions executa o Ruff e os testes com pytest antes do build da imagem
+e do deploy existente no Azure. Os testes unitários de transcrição simulam o
+modelo Whisper e não baixam modelos nem acessam serviços externos.

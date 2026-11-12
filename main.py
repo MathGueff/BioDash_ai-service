@@ -889,7 +889,6 @@ def chatbot_endpoint(req: ChatRequest):
 
     normalized = normalize_text(req.message)
     context = req.context or ContextState()
-    history = req.history or []
     entities = extract_entities(req.message)
     markers = req.markers or []
     indicators = req.indicators or []

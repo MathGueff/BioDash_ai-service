@@ -5,12 +5,13 @@
   "scripts": {
     "dev": "uv run --python 3.11 --with-requirements requirements.txt uvicorn main:app --host 127.0.0.1 --port 5000",
     "prepare": "git config core.hooksPath .githooks || true",
-    "test": "python test_chatbot_context.py",
+    "test": "python -m pytest -q",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:build": "docker compose up -d --build",
     "docker:logs": "docker logs -f biodash_ai-service",
-    "docker:ps": "docker compose ps"
+    "docker:ps": "docker compose ps",
+    "lint": "ruff check ."
   },
   "keywords": [
     "biodash",

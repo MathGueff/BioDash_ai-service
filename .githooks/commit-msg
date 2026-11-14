@@ -1,0 +1,48 @@
+#!/bin/sh
+# BioDash - Hook de validação de mensagens de commit (Conventional Commits)
+# Bloqueia commits que não seguem o padrão necessário para a atualização automática de tags e SemVer.
+
+commit_msg_file="$1"
+commit_msg=$(head -n 1 "$commit_msg_file")
+
+# Ignora commits automáticos de merge, revert ou squash
+if echo "$commit_msg" | grep -qE '^(Merge|Revert|fixup!|squash!)'; then
+    exit 0
+fi
+
+# Regex estrita compatível com Conventional Commits:
+# Tipos aceitos: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+# Opcionalmente com escopo entre parênteses: ex: feat(auth): ...
+# Opcionalmente com ! para breaking change: ex: feat!: ... ou feat(auth)!: ...
+# Deve ser seguido de ": " e uma descrição.
+regex='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_.-]+\))?(!)?: .+$'
+
+if ! echo "$commit_msg" | grep -qE "$regex"; then
+    echo ""
+    echo "================================================================================"
+    echo " [ERRO] COMMIT BLOQUEADO: Mensagem fora do padrão Conventional Commits!"
+    echo "================================================================================"
+    echo " Sua mensagem de commit foi:"
+    echo "   \"$commit_msg\""
+    echo ""
+    echo " A mensagem PRECISA começar com um tipo válido, seguido de dois-pontos e espaço:"
+    echo "   feat: nova funcionalidade (gera incremento de versão MINOR: 1.0.0 -> 1.1.0)"
+    echo "   fix: correção de bug (gera incremento de versão PATCH: 1.0.0 -> 1.0.1)"
+    echo "   feat!: breaking change (gera incremento de versão MAJOR: 1.0.0 -> 2.0.0)"
+    echo "   docs: alterações apenas em documentação"
+    echo "   chore: tarefas de build, configs ou manutenção"
+    echo "   refactor: refatoração de código sem alterar regra"
+    echo "   test: adição ou correção de testes"
+    echo "   ci: alterações no pipeline de CI/CD"
+    echo ""
+    echo " Exemplos válidos:"
+    echo "   git commit -m \"feat: adiciona componente de alerta de sensor\""
+    echo "   git commit -m \"fix(auth): corrige validacao de token expirado\""
+    echo "   git commit -m \"chore: atualiza dependencias do projeto\""
+    echo "================================================================================"
+    echo ""
+    exit 1
+fi
+
+exit 0
+

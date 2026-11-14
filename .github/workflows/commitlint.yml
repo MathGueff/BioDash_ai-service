@@ -1,0 +1,81 @@
+name: Commit Lint
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  lint-commits:
+    name: Validar Mensagens de Commit (Conventional Commits)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validar commits com Conventional Commits
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+            HEAD_REF="${{ github.event.pull_request.head.sha }}"
+            echo "Avaliando commits do PR entre $BASE_REF e $HEAD_REF..."
+            RANGE="$BASE_REF..$HEAD_REF"
+          else
+            # No push, verifica os commits incluídos
+            if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ] || [ -z "${{ github.event.before }}" ]; then
+              RANGE="HEAD~1..HEAD"
+            else
+              RANGE="${{ github.event.before }}..${{ github.event.after }}"
+            fi
+            echo "Avaliando commits do Push: $RANGE..."
+          fi
+
+          mapfile -t COMMITS < <(git log "$RANGE" --pretty=format:'%s' || true)
+
+          if [ ${#COMMITS[@]} -eq 0 ]; then
+            echo "Nenhum commit novo no intervalo para validar."
+            exit 0
+          fi
+
+          REGEX='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_.-]+\))?(!)?: .+$'
+          HAS_ERROR=0
+
+          echo "Verificando commits:"
+          for COMMIT in "${COMMITS[@]}"; do
+            # Ignora commits automáticos do git
+            if [[ "$COMMIT" =~ ^(Merge|Revert|fixup!|squash!) ]]; then
+              echo "  [OK - Ignorado]: $COMMIT"
+              continue
+            fi
+
+            if [[ "$COMMIT" =~ $REGEX ]]; then
+              echo "  [OK]: $COMMIT"
+            else
+              echo "  [ERRO]: \"$COMMIT\" NAO segue Conventional Commits!"
+              HAS_ERROR=1
+            fi
+          done
+
+          if [ $HAS_ERROR -eq 1 ]; then
+            echo ""
+            echo "================================================================================"
+            echo " [ERRO] Um ou mais commits estao fora do padrao!"
+            echo " Padrão exigido: <tipo>(<escopo>): <descricao>"
+            echo " Tipos válidos: feat, fix, docs, chore, refactor, test, style, perf, ci, build"
+            echo " Exemplo: feat: adiciona endpoint de sensores"
+            echo "================================================================================"
+            exit 1
+          fi
+
+          echo "Todos os commits seguem o padrao com sucesso!"
+

@@ -8,18 +8,26 @@ Item 5: Validar respostas.
 """
 
 import sys
+from unittest.mock import patch
+
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-from main import (
-    chatbot_endpoint,
-    ChatRequest,
-    ContextState,
-    ChatMessage,
-    QuestionType,
-    extract_entities,
-    CONFIDENCE_THRESHOLD,
-)
+with patch("dotenv.load_dotenv", return_value=False):
+    from main import (
+        chatbot_endpoint,
+        ChatRequest,
+        ContextState,
+        ChatMessage,
+        QuestionType,
+        extract_entities,
+        CONFIDENCE_THRESHOLD,
+        WHISPER_MODEL,
+        MAX_AUDIO_BYTES,
+        MAX_AUDIO_DURATION_SECONDS,
+        WHISPER_BEAM_SIZE,
+        WHISPER_BEST_OF,
+    )
 
 
 def test_item1_definir_tipos_de_perguntas():
@@ -190,12 +198,27 @@ def test_item5_validar_respostas():
     print("[OK] Item 5 validado com sucesso!")
 
 
+def test_item6_validar_limites_transcricao():
+    print("\n=======================================================")
+    print("CHECKLIST ITEM 6: Validar limites e defaults de transcrição")
+    print("=======================================================")
+    assert MAX_AUDIO_BYTES == 512000, f"Esperado MAX_AUDIO_BYTES == 512000, recebido {MAX_AUDIO_BYTES}"
+    assert MAX_AUDIO_DURATION_SECONDS == 12.0, (
+        f"Esperado MAX_AUDIO_DURATION_SECONDS == 12.0, recebido {MAX_AUDIO_DURATION_SECONDS}"
+    )
+    assert WHISPER_MODEL == "base", f"Esperado WHISPER_MODEL == 'base', recebido {WHISPER_MODEL!r}"
+    assert WHISPER_BEAM_SIZE == 2, f"Esperado WHISPER_BEAM_SIZE == 2, recebido {WHISPER_BEAM_SIZE}"
+    assert WHISPER_BEST_OF == 2, f"Esperado WHISPER_BEST_OF == 2, recebido {WHISPER_BEST_OF}"
+    print("[OK] Item 6 validado com sucesso!")
+
+
 if __name__ == "__main__":
     test_item1_definir_tipos_de_perguntas()
     test_item2_definir_contexto_das_solicitacoes()
     test_item3_implementar_interpretacao()
     test_item4_testar_diferentes_perguntas()
     test_item5_validar_respostas()
+    test_item6_validar_limites_transcricao()
     print("\n=======================================================")
     print("🎉 TODA A CHECKLIST FOI ATENDIDA E VALIDADA COM SUCESSO!")
     print("=======================================================")

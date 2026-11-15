@@ -41,10 +41,14 @@ init_telemetry()
 
 # Limiar mínimo de confiança do classificador SVM
 CONFIDENCE_THRESHOLD = 0.25
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
-MAX_AUDIO_BYTES = int(os.getenv("MAX_AUDIO_BYTES", str(20 * 1024 * 1024)))
+MAX_AUDIO_BYTES = int(os.getenv("MAX_AUDIO_BYTES", str(500 * 1024)))
+MAX_AUDIO_DURATION_SECONDS = float(os.getenv("MAX_AUDIO_DURATION_SECONDS", "12.0"))
+AUDIO_DURATION_TOLERANCE_SECONDS = float(os.getenv("AUDIO_DURATION_TOLERANCE_SECONDS", "1.5"))
+WHISPER_BEAM_SIZE = int(os.getenv("WHISPER_BEAM_SIZE", "2"))
+WHISPER_BEST_OF = int(os.getenv("WHISPER_BEST_OF", "2"))
 WHISPER_INITIAL_PROMPT = os.getenv(
     "WHISPER_INITIAL_PROMPT",
     (
@@ -88,6 +92,14 @@ def get_whisper_model():
     return _whisper_model
 
 
+class AudioDurationExceededError(ValueError):
+    """Exceção lançada quando a duração do áudio excede o limite permitido."""
+
+    def __init__(self, duration: float):
+        self.duration = duration
+        super().__init__(f"Áudio com duração {duration:.2f}s excede o limite permitido.")
+
+
 def transcribe_file(path: str) -> Dict[str, Any]:
     model = get_whisper_model()
     segments, info = model.transcribe(
@@ -99,13 +111,15 @@ def transcribe_file(path: str) -> Dict[str, Any]:
             "min_silence_duration_ms": 350,
             "speech_pad_ms": 300,
         },
-        beam_size=5,
-        best_of=5,
+        beam_size=WHISPER_BEAM_SIZE,
+        best_of=WHISPER_BEST_OF,
         patience=1.0,
         temperature=0.0,
         condition_on_previous_text=False,
         initial_prompt=WHISPER_INITIAL_PROMPT,
     )
+    if info.duration and float(info.duration) > (MAX_AUDIO_DURATION_SECONDS + AUDIO_DURATION_TOLERANCE_SECONDS):
+        raise AudioDurationExceededError(float(info.duration))
     text = " ".join(segment.text.strip() for segment in segments).strip()
     return {
         "text": text,
@@ -800,7 +814,10 @@ async def transcribe_audio(audio: UploadFile = File(...)):
     if not contents:
         raise HTTPException(status_code=400, detail="O arquivo de áudio está vazio.")
     if len(contents) > MAX_AUDIO_BYTES:
-        raise HTTPException(status_code=413, detail="O áudio excede o limite permitido.")
+        raise HTTPException(
+            status_code=413,
+            detail=f"O áudio excede o limite permitido de {MAX_AUDIO_BYTES // 1024} KB (máximo de {int(MAX_AUDIO_DURATION_SECONDS)} segundos).",
+        )
 
     suffix = Path(audio.filename or "voice-message.webm").suffix.lower()
     if suffix not in {".webm", ".ogg", ".mp4", ".m4a", ".wav", ".mpeg", ".mp3"}:
@@ -827,6 +844,17 @@ async def transcribe_audio(audio: UploadFile = File(...)):
         return result
     except HTTPException:
         raise
+    except AudioDurationExceededError as exc:
+        log_event(
+            "warning",
+            "Áudio excedeu duração máxima permitida",
+            audioDurationSec=round(exc.duration, 2),
+            maxDurationSec=MAX_AUDIO_DURATION_SECONDS,
+        )
+        raise HTTPException(
+            status_code=413,
+            detail=f"O áudio possui {exc.duration:.1f}s e excede o limite máximo de {int(MAX_AUDIO_DURATION_SECONDS)} segundos.",
+        ) from exc
     except Exception as exc:
         log_event("error", "Falha ao transcrever áudio no Whisper", error=str(exc))
         raise HTTPException(status_code=503, detail=f"Falha ao transcrever áudio: {exc}") from exc

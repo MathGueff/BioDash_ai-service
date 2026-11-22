@@ -8,10 +8,12 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
+      - '**'
+    tags-ignore:
+      - 'v*'
   pull_request:
     branches:
-      - main
+      - '**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -43,8 +45,11 @@ jobs:
       - name: Verificar lint
         run: ruff check .
 
-      - name: Executar testes unitários e de contexto
-        run: python -m pytest -q
+      - name: Executar testes unitários
+        run: python -m pytest tests/test_unit.py -v
+
+      - name: Executar testes de integração e contexto IoT
+        run: python -m pytest tests/test_integration.py test_chatbot_context.py -v
 
   # ============================================================================
   # Job 2: Validação de Conventional Commits
